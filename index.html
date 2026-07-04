@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Zeroday Academy — Linux Basics Lab</title>
+<style>
+  :root {
+    --bg: #0b0f14;
+    --chrome: #131a22;
+    --border: #1e2a36;
+    --fg: #cdd6e4;
+    --dim: #5c6b7a;
+    --user: #8bd450;   /* prompt: user@host */
+    --path: #6cb6ff;   /* prompt: path */
+    --accent: #e3b341; /* headings / banner */
+    --match: #e3b341;  /* grep highlight */
+    --err: #ff7b72;
+    --caret: #8bd450;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: #060a0e;
+    color: var(--fg);
+    font-family: "JetBrains Mono", "SF Mono", "Cascadia Code", ui-monospace, Menlo, Consolas, monospace;
+  }
+
+  body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+  }
+
+  .window {
+    width: min(860px, 100%);
+    height: min(560px, calc(100vh - 32px));
+    display: flex;
+    flex-direction: column;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 24px 60px -20px rgba(0,0,0,0.7);
+  }
+
+  .titlebar {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    background: var(--chrome);
+    border-bottom: 1px solid var(--border);
+    user-select: none;
+  }
+  .dots { display: flex; gap: 7px; }
+  .dot { width: 11px; height: 11px; border-radius: 50%; background: #2a3846; }
+  .dot.r { background: #e05561; }
+  .dot.y { background: #d8a341; }
+  .dot.g { background: #6ab04c; }
+  .title {
+    color: var(--dim);
+    font-size: 12px;
+    letter-spacing: 0.04em;
+  }
+  .title b { color: var(--fg); font-weight: 600; }
+
+  .screen {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    padding: 16px 16px 8px;
+    font-size: 14px;
+    line-height: 1.55;
+  }
+  .screen::-webkit-scrollbar { width: 10px; }
+  .screen::-webkit-scrollbar-thumb { background: #1e2a36; border-radius: 8px; }
+
+  .line { white-space: pre-wrap; word-break: break-word; }
+  .u { color: var(--user); }
+  .p { color: var(--path); }
+  .c { color: var(--dim); }
+  .accent { color: var(--accent); }
+  .err { color: var(--err); }
+  .dir { color: var(--path); font-weight: 600; }
+  .file { color: var(--fg); }
+  .hidden { color: var(--dim); }
+  .match { color: var(--match); font-weight: 700; }
+  .muted { color: var(--dim); }
+
+  .inputrow {
+    display: flex;
+    align-items: baseline;
+    gap: 0;
+    padding: 0 16px 16px;
+    font-size: 14px;
+  }
+  .prompt { flex: none; white-space: pre; }
+  #cmd {
+    flex: 1 1 auto;
+    min-width: 0;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--fg);
+    font: inherit;
+    caret-color: var(--caret);
+    padding: 0;
+  }
+
+  a { color: var(--path); }
+
+  @media (max-width: 520px) {
+    body { padding: 0; }
+    .window { height: 100vh; border-radius: 0; border-left: none; border-right: none; }
+    #cmd { font-size: 16px; }   /* avoid iOS zoom on focus */
+    .inputrow, .screen { font-size: 15px; }
+  }
+</style>
+</head>
+<body>
+  <div class="window" id="win">
+    <div class="titlebar">
+      <div class="dots"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span></div>
+      <div class="title"><b>zeroday academy</b> &mdash; linux basics lab</div>
+    </div>
+    <div class="screen" id="screen"></div>
+    <div class="inputrow">
+      <span class="prompt" id="prompt"></span>
+      <input id="cmd" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" aria-label="terminal input">
+    </div>
+  </div>
+
+<script>
+/* ------------------------------------------------------------------ *
+ * Zeroday Academy — simulated terminal
+ * Everything is fake and client-side. No real shell, no network.
+ * To customize the lesson, edit the FS object and BANNER below.
+ * ------------------------------------------------------------------ */
+
+const FS = {
+  type: "dir", children: {
+    home: { type: "dir", children: {
+      student: { type: "dir", children: {
+        "welcome.txt": { type: "file", content:
+`Zeroday Academy — Linux Basics Lab
+===================================
+This terminal is a safe practice sandbox. Nothing here is real.
+
+The five commands to learn:
+  pwd    show where you are
+  ls     list what's here
+  cd     move between folders
+  cat    read a file
+  grep   search inside files
+
+Type 'help' any time. Start with:  ls
+` },
+        "notes.txt": { type: "file", content:
+`My Linux notes
+- ls lists the files in a folder
+- cd changes the current folder
+- cat prints a whole file to the screen
+- grep searches for text inside a file
+- grep -r searches inside EVERY file in a folder at once
+- in Linux, almost everything is a file
+` },
+        "passwords.txt": { type: "file", content:
+`# Never store passwords in plain text like this!
+admin:admin123
+root:toor
+user:password1
+# This is exactly what an attacker greps for first:
+#   grep root passwords.txt
+` },
+        ".secret": { type: "file", content:
+`Nice find. Files starting with a dot are hidden.
+You only saw this because you ran:  ls -a
+` },
+        logs: { type: "dir", children: {
+          "auth.log": { type: "file", content:
+`Jan 10 09:14:02 sshd: Accepted password for student from 10.0.0.5
+Jan 10 09:15:41 sshd: Failed password for root from 45.33.12.9
+Jan 10 09:15:44 sshd: Failed password for root from 45.33.12.9
+Jan 10 09:16:02 sshd: Failed password for admin from 45.33.12.9
+Jan 10 09:20:13 sshd: Accepted password for student from 10.0.0.5
+` }
+        }},
+        ctf: { type: "dir", children: {
+          "readme.txt": { type: "file", content:
+`Your first challenge
+--------------------
+A flag is hidden in this folder.
+Read it directly:      cat flag.txt
+Or search for it:      grep flag flag.txt
+` },
+          "flag.txt": { type: "file", content:
+`flag{welcome_to_zeroday_academy}
+` }
+        }}
+      }}
+    }},
+    etc: { type: "dir", children: {
+      "passwd": { type: "file", content:
+`root:x:0:0:root:/root:/bin/bash
+student:x:1000:1000:student:/home/student:/bin/bash
+daemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin
+` },
+      "hostname": { type: "file", content: "zeroday-lab\n" }
+    }}
+  }
+};
+
+/* ------------------------------------------------------------------ *
+ * Case 4111 — the live-demo haystack.
+ * A folder of 10,000 files with one planted stolen card number, so the
+ * slide command `grep -r "4111" .` finds file_07342.txt exactly.
+ * ------------------------------------------------------------------ */
+(function seedCaseFiles() {
+  const files = {};
+  for (let i = 1; i <= 10000; i++) {
+    const name = "file_" + String(i).padStart(5, "0") + ".txt";
+    files[name] = {
+      type: "file",
+      content: (i === 7342)
+        ? "Stolen Credit Card: 4111 1111 1111 1111\n"
+        : "Nothing to see here.\n"
+    };
+  }
+  FS.children.home.children.student.children["case-files"] = { type: "dir", children: files };
+})();
+
+const HOME = ["home", "student"];
+// Boot the student straight inside the case folder — no `cd` needed, matches the slides.
+let cwd = ["home", "student", "case-files"];
+const history = [];
+let histIdx = 0;
+
+const screen = document.getElementById("screen");
+const cmdInput = document.getElementById("cmd");
+const promptEl = document.getElementById("prompt");
+
+/* ---------- helpers ---------- */
+function esc(s) {
+  return s.replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+}
+function displayPath(segs = cwd) {
+  if (segs.length >= HOME.length && HOME.every((p, i) => segs[i] === p)) {
+    const rest = segs.slice(HOME.length);
+    return rest.length ? "~/" + rest.join("/") : "~";
+  }
+  return "/" + segs.join("/");
+}
+function promptHTML(segs = cwd) {
+  return `<span class="u">student@zeroday</span><span class="c">:</span>` +
+         `<span class="p">${esc(displayPath(segs))}</span><span class="c">$</span> `;
+}
+function nodeAt(segs) {
+  let node = FS;
+  for (const s of segs) {
+    if (node.type !== "dir" || !node.children[s]) return null;
+    node = node.children[s];
+  }
+  return node;
+}
+// Resolve an argument path to { segs, node } or null if it doesn't exist.
+function resolve(arg) {
+  let segs = (arg.startsWith("/")) ? [] : cwd.slice();
+  if (arg === "~" || arg.startsWith("~/")) { segs = HOME.slice(); arg = arg.slice(1); }
+  for (const part of arg.split("/")) {
+    if (part === "" || part === ".") continue;
+    if (part === "..") { if (segs.length) segs.pop(); continue; }
+    const node = nodeAt(segs);
+    if (!node || node.type !== "dir" || !node.children[part]) return null;
+    segs.push(part);
+  }
+  return { segs, node: nodeAt(segs) };
+}
+// Recursively collect files under a directory node, with paths relative to it.
+function collectFiles(node, rel, out) {
+  for (const name of Object.keys(node.children).sort()) {
+    const c = node.children[name];
+    const rp = rel + name;
+    if (c.type === "dir") collectFiles(c, rp + "/", out);
+    else out.push({ rel: rp, node: c });
+  }
+}
+
+/* ---------- output ---------- */
+function print(html = "") {
+  const div = document.createElement("div");
+  div.className = "line";
+  div.innerHTML = html;
+  screen.appendChild(div);
+  screen.scrollTop = screen.scrollHeight;
+}
+function echoCommand(raw) {
+  print(promptHTML() + esc(raw));
+}
+
+/* ---------- commands ---------- */
+function cmd_pwd() { print(esc("/" + cwd.join("/"))); }
+
+function cmd_ls(args) {
+  const flags = args.filter(a => a.startsWith("-")).join("");
+  const paths = args.filter(a => !a.startsWith("-"));
+  const showAll = flags.includes("a");
+  const long = flags.includes("l");
+  const target = paths[0] || ".";
+  const r = resolve(target);
+  if (!r) { print(`<span class="err">ls: cannot access '${esc(target)}': No such file or directory</span>`); return; }
+  if (r.node.type === "file") { print(`<span class="file">${esc(target)}</span>`); return; }
+
+  let names = Object.keys(r.node.children);
+  if (!showAll) names = names.filter(n => !n.startsWith("."));
+  names.sort();
+  if (!names.length) { return; }
+
+  if (long) {
+    for (const n of names) {
+      const c = r.node.children[n];
+      const isDir = c.type === "dir";
+      const perm = isDir ? "drwxr-xr-x" : "-rw-r--r--";
+      const size = isDir ? 4096 : (c.content ? c.content.length : 0);
+      const cls = isDir ? "dir" : (n.startsWith(".") ? "hidden" : "file");
+      const label = isDir ? n + "/" : n;
+      print(`<span class="muted">${perm}  student student ${String(size).padStart(5)} </span><span class="${cls}">${esc(label)}</span>`);
+    }
+  } else {
+    const html = names.map(n => {
+      const c = r.node.children[n];
+      const cls = c.type === "dir" ? "dir" : (n.startsWith(".") ? "hidden" : "file");
+      const label = c.type === "dir" ? n + "/" : n;
+      return `<span class="${cls}">${esc(label)}</span>`;
+    }).join("   ");
+    print(html);
+  }
+}
+
+function cmd_cd(args) {
+  const target = args[0] || "~";
+  const r = resolve(target);
+  if (!r) { print(`<span class="err">cd: ${esc(target)}: No such file or directory</span>`); return; }
+  if (r.node.type !== "dir") { print(`<span class="err">cd: ${esc(target)}: Not a directory</span>`); return; }
+  cwd = r.segs;
+}
+
+function cmd_cat(args) {
+  if (!args.length) { print(`<span class="err">cat: missing file name — try: cat welcome.txt</span>`); return; }
+  for (const a of args) {
+    const r = resolve(a);
+    if (!r) { print(`<span class="err">cat: ${esc(a)}: No such file or directory</span>`); continue; }
+    if (r.node.type === "dir") { print(`<span class="err">cat: ${esc(a)}: Is a directory</span>`); continue; }
+    print(esc(r.node.content.replace(/\n$/, "")));
+  }
+}
+
+// grep one file's content; returns an array of pre-built HTML lines for matches.
+function grepContent(content, re, prefixHTML) {
+  const out = [];
+  for (const rawLine of content.split("\n")) {
+    if (!rawLine.length) continue;
+    re.lastIndex = 0;
+    if (re.test(rawLine)) {
+      re.lastIndex = 0;
+      const highlighted = esc(rawLine).replace(
+        new RegExp(re.source, re.flags),
+        m => `<span class="match">${m}</span>`
+      );
+      out.push(prefixHTML + highlighted);
+    }
+  }
+  return out;
+}
+
+function cmd_grep(args) {
+  const flags = args.filter(a => a.startsWith("-")).join("");
+  const rest = args.filter(a => !a.startsWith("-"));
+  const ci = flags.includes("i");
+  const recursive = flags.includes("r");
+  if (rest.length < 2) {
+    print(`<span class="err">usage: grep [-r] [-i] PATTERN FILE  —  e.g. grep -r "4111" .   or   grep Failed logs/auth.log</span>`);
+    return;
+  }
+  const pattern = rest[0];
+  const targets = rest.slice(1);
+  let re;
+  try { re = new RegExp(pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), ci ? "gi" : "g"); }
+  catch (e) { print(`<span class="err">grep: invalid pattern</span>`); return; }
+
+  const lines = [];
+  for (const t of targets) {
+    const r = resolve(t);
+    if (!r) { print(`<span class="err">grep: ${esc(t)}: No such file or directory</span>`); continue; }
+
+    if (r.node.type === "dir") {
+      if (!recursive) { print(`<span class="err">grep: ${esc(t)}: Is a directory</span>`); continue; }
+      const base = (t === "." ? "./" : t.replace(/\/+$/, "") + "/");
+      const files = [];
+      collectFiles(r.node, "", files);
+      for (const f of files) {
+        const prefix = `<span class="p">${esc(base + f.rel)}</span><span class="c">:</span>`;
+        for (const ln of grepContent(f.node.content, re, prefix)) lines.push(ln);
+      }
+    } else {
+      // real grep prefixes the filename when searching many files or recursively
+      const many = targets.length > 1 || recursive;
+      const prefix = many ? `<span class="p">${esc(t)}</span><span class="c">:</span>` : "";
+      for (const ln of grepContent(r.node.content, re, prefix)) lines.push(ln);
+    }
+  }
+  for (const ln of lines) print(ln);
+}
+
+function cmd_help() {
+  print(
+`<span class="accent">Available commands</span>
+  <span class="u">pwd</span>                       print the current folder
+  <span class="u">ls</span> [-a] [-l]              list files  (-a shows hidden, -l shows details)
+  <span class="u">cd</span> &lt;folder&gt;               move into a folder  (cd .. goes up, cd goes home)
+  <span class="u">cat</span> &lt;file&gt;                print a file's contents
+  <span class="u">grep</span> [-r] [-i] PATTERN FILE   search for text  (-r searches a whole folder)
+  <span class="u">clear</span>                     clear the screen
+  <span class="u">help</span>                      show this list
+
+<span class="muted">Tip: press Tab to auto-complete a name, ↑/↓ for history.</span>`);
+}
+
+/* ---------- tokenizer + globbing (mimics the shell) ---------- */
+// Split a line into tokens, honoring single/double quotes and stripping them,
+// so `grep -r "4111" .` yields the pattern 4111 (not "4111").
+function tokenize(line) {
+  const toks = [];
+  let i = 0;
+  const n = line.length;
+  while (i < n) {
+    while (i < n && /\s/.test(line[i])) i++;
+    if (i >= n) break;
+    let tok = "", quoted = false;
+    while (i < n && !/\s/.test(line[i])) {
+      const ch = line[i];
+      if (ch === '"' || ch === "'") {
+        quoted = true;
+        const q = ch; i++;
+        while (i < n && line[i] !== q) { tok += line[i]; i++; }
+        if (i < n) i++; // skip closing quote
+      } else { tok += ch; i++; }
+    }
+    toks.push({ value: tok, quoted });
+  }
+  return toks;
+}
+
+// Expand an *unquoted* token containing * or ? against the filesystem.
+// Supported in the final path component: ./file*, file_073*, *.txt, logs/*.log
+// No matches -> the pattern is left literal, exactly like bash with nullglob off.
+function expandGlob(pat) {
+  const slash = pat.lastIndexOf("/");
+  const dirPrefix = slash >= 0 ? pat.slice(0, slash + 1) : "";
+  const namePat = slash >= 0 ? pat.slice(slash + 1) : pat;
+  if (!/[*?]/.test(namePat)) return [pat];
+  const r = resolve(dirPrefix === "" ? "." : dirPrefix);
+  if (!r || r.node.type !== "dir") return [pat];
+  const re = new RegExp(
+    "^" + namePat.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".") + "$"
+  );
+  const showHidden = namePat.startsWith(".");
+  const matches = Object.keys(r.node.children)
+    .filter(nm => (showHidden || !nm.startsWith(".")) && re.test(nm))
+    .sort()
+    .map(nm => dirPrefix + nm);
+  return matches.length ? matches : [pat];
+}
+
+/* ---------- dispatcher ---------- */
+function run(raw) {
+  const line = raw.trim();
+  if (!line) return;
+  const toks = tokenize(line);
+  if (!toks.length) return;
+  const name = toks[0].value;
+  const args = [];
+  for (let k = 1; k < toks.length; k++) {
+    const t = toks[k];
+    if (!t.quoted && /[*?]/.test(t.value)) args.push(...expandGlob(t.value));
+    else args.push(t.value);
+  }
+  switch (name) {
+    case "pwd":   cmd_pwd(); break;
+    case "ls":    cmd_ls(args); break;
+    case "cd":    cmd_cd(args); break;
+    case "cat":   cmd_cat(args); break;
+    case "grep":  cmd_grep(args); break;
+    case "help":  cmd_help(); break;
+    case "clear": screen.innerHTML = ""; break;
+    default:
+      print(`<span class="err">bash: ${esc(name)}: command not found</span>` +
+            `<span class="muted">  (this lab only knows: pwd, ls, cd, cat, grep — type help)</span>`);
+  }
+}
+
+/* ---------- tab completion ---------- */
+function complete() {
+  const val = cmdInput.value;
+  const m = val.match(/(\S*)$/);
+  const token = m ? m[1] : "";
+  const slash = token.lastIndexOf("/");
+  const dirPart = slash >= 0 ? token.slice(0, slash + 1) : "";
+  const frag = slash >= 0 ? token.slice(slash + 1) : token;
+  const baseArg = dirPart || ".";
+  const r = resolve(baseArg);
+  if (!r || r.node.type !== "dir") return;
+  const matches = Object.keys(r.node.children).filter(n => n.startsWith(frag) && (frag.startsWith(".") || !n.startsWith(".")));
+  if (matches.length === 1) {
+    const c = r.node.children[matches[0]];
+    const completed = dirPart + matches[0] + (c.type === "dir" ? "/" : "");
+    cmdInput.value = val.slice(0, val.length - token.length) + completed;
+  } else if (matches.length > 1) {
+    echoCommand(val);
+    print(matches.slice(0, 200).map(n => {
+      const c = r.node.children[n];
+      return `<span class="${c.type === "dir" ? "dir" : "file"}">${esc(c.type === "dir" ? n + "/" : n)}</span>`;
+    }).join("   ") + (matches.length > 200 ? `<span class="muted">   … (${matches.length} matches)</span>` : ""));
+  }
+}
+
+/* ---------- input handling ---------- */
+cmdInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    const raw = cmdInput.value;
+    echoCommand(raw);
+    if (raw.trim()) { history.push(raw); }
+    histIdx = history.length;
+    cmdInput.value = "";
+    run(raw);
+    promptEl.innerHTML = promptHTML();
+  } else if (e.key === "ArrowUp") {
+    e.preventDefault();
+    if (histIdx > 0) { histIdx--; cmdInput.value = history[histIdx]; moveCaretEnd(); }
+  } else if (e.key === "ArrowDown") {
+    e.preventDefault();
+    if (histIdx < history.length - 1) { histIdx++; cmdInput.value = history[histIdx]; moveCaretEnd(); }
+    else { histIdx = history.length; cmdInput.value = ""; }
+  } else if (e.key === "Tab") {
+    e.preventDefault();
+    complete();
+  } else if (e.key === "l" && e.ctrlKey) {
+    e.preventDefault();
+    screen.innerHTML = "";
+  }
+});
+
+function moveCaretEnd() {
+  requestAnimationFrame(() => { cmdInput.setSelectionRange(cmdInput.value.length, cmdInput.value.length); });
+}
+
+// clicking anywhere in the window focuses the input (unless selecting text)
+document.getElementById("win").addEventListener("mousedown", (e) => {
+  if (window.getSelection().toString()) return;
+  if (e.target.tagName !== "A") { setTimeout(() => cmdInput.focus(), 0); }
+});
+
+/* ---------- boot ---------- */
+const BANNER =
+`<span class="accent">╔══════════════════════════════════════════╗
+║   ZERODAY ACADEMY · Linux Basics Lab     ║
+╚══════════════════════════════════════════╝</span>
+<span class="accent">Case 4111</span> — a stolen card number is hidden in one of 10,000 files right here.
+Find it with just two commands:
+  <span class="u">ls</span>                     list the files
+  <span class="u">grep -r "4111" .</span>       search inside all of them at once
+
+Type <span class="u">help</span> for the full command list, or <span class="u">cd ..</span> to explore the practice sandbox.
+`;
+
+function boot() {
+  print(BANNER);
+  promptEl.innerHTML = promptHTML();
+  cmdInput.focus();
+}
+boot();
+</script>
+</body>
+</html>
